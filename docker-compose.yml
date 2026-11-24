@@ -1,0 +1,38 @@
+#Instead of starting each container separately using multiple Docker commands, you define everything in one YAML file and start them together with one command.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: checkr
+      POSTGRES_PASSWORD: checkr
+      POSTGRES_DB: checkr
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U checkr -d checkr"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg2://checkr:checkr@db:5432/checkr
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      SIMULATE_FAILURE_RATE: ${SIMULATE_FAILURE_RATE:-0}
+      MAX_MESSAGES_PER_HOUR: ${MAX_MESSAGES_PER_HOUR:-30}
+    volumes:
+      - ./backend/app:/code/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
