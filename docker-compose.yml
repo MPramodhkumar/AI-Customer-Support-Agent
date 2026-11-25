@@ -1,4 +1,4 @@
-#Instead of starting each container separately using multiple Docker commands, you define everything in one YAML file and start them together with one command.
+
 services:
   db:
     image: postgres:16-alpine
@@ -29,6 +29,8 @@ services:
       MAX_MESSAGES_PER_HOUR: ${MAX_MESSAGES_PER_HOUR:-30}
     volumes:
       - ./backend/app:/code/app
+      - ./backend/tests:/code/tests
+      - ./backend/evaluation:/code/evaluation
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     depends_on:
       db:
