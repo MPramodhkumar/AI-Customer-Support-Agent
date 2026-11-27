@@ -1,21 +1,38 @@
 import hashlib
+import os
 import secrets
 from datetime import date, timedelta
 
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
-from .agent import run_agent
+from .agent import RateLimitExceeded, run_agent
 from .database import Base, SessionLocal, engine, get_db
 from .models import Customer, Order
 from .seed import seed
 
-from .agent import RateLimitExceeded
-
 app = FastAPI(title="Checkr")
+
+allowed_origins = [
+    origin.strip()
+    for origin in os.getenv(
+        "ALLOWED_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173",
+    ).split(",")
+    if origin.strip()
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 api_key_header = APIKeyHeader(name="X-API-Key")
 
@@ -32,10 +49,12 @@ def startup():
         seed(db)
         if engine.dialect.name == "postgresql":
             for table in ("customers", "orders"):
-                db.execute(text(
-                    f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), "
-                    f"COALESCE((SELECT MAX(id) FROM {table}), 1), true)"
-                ))
+                db.execute(
+                    text(
+                        f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), "
+                        f"COALESCE((SELECT MAX(id) FROM {table}), 1), true)"
+                    )
+                )
             db.commit()
     finally:
         db.close()
@@ -117,10 +136,22 @@ def demo_customer(db: Session = Depends(get_db)):
             db.execute(text("SELECT pg_advisory_xact_lock(72638104)"))
         first_id = (db.query(Order.id).order_by(Order.id.desc()).first() or (0,))[0] + 1
         db.add_all([
-            Order(id=first_id, customer_id=customer.id, item="Wireless Headphones", total=3499,
-                  status="confirmed", eta=date.today() + timedelta(days=3)),
-            Order(id=first_id + 1, customer_id=customer.id, item="Everyday Backpack", total=2299,
-                  status="delivered", eta=date.today() - timedelta(days=2)),
+            Order(
+                id=first_id,
+                customer_id=customer.id,
+                item="Wireless Headphones",
+                total=3499,
+                status="confirmed",
+                eta=date.today() + timedelta(days=3),
+            ),
+            Order(
+                id=first_id + 1,
+                customer_id=customer.id,
+                item="Everyday Backpack",
+                total=2299,
+                status="delivered",
+                eta=date.today() - timedelta(days=2),
+            ),
         ])
     db.commit()
     db.refresh(customer)
@@ -134,8 +165,12 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=422, detail="Enter a valid email address")
     if db.query(Customer).filter(Customer.email == email).first():
         raise HTTPException(status_code=409, detail="An account with this email already exists")
-    customer = Customer(name=req.name.strip(), email=email, api_key=secrets.token_urlsafe(32),
-                        password_hash=_password_hash(req.password))
+    customer = Customer(
+        name=req.name.strip(),
+        email=email,
+        api_key=secrets.token_urlsafe(32),
+        password_hash=_password_hash(req.password),
+    )
     db.add(customer)
     db.commit()
     db.refresh(customer)
@@ -156,7 +191,13 @@ def create_order(req: OrderRequest, customer: Customer = Depends(current_custome
     if db.bind.dialect.name == "postgresql":
         db.execute(text("SELECT pg_advisory_xact_lock(72638104)"))
     order_id = (db.query(Order.id).order_by(Order.id.desc()).first() or (0,))[0] + 1
-    order = Order(id=order_id, customer_id=customer.id, item=req.item.strip(), total=req.price, status="confirmed")
+    order = Order(
+        id=order_id,
+        customer_id=customer.id,
+        item=req.item.strip(),
+        total=req.price,
+        status="confirmed",
+    )
     db.add(order)
     db.commit()
     db.refresh(order)
@@ -165,8 +206,10 @@ def create_order(req: OrderRequest, customer: Customer = Depends(current_custome
 
 @app.get("/orders")
 def list_orders(customer: Customer = Depends(current_customer), db: Session = Depends(get_db)):
-    return [{"id": o.id, "item": o.item, "price": o.total, "status": o.status}
-            for o in db.query(Order).filter(Order.customer_id == customer.id).order_by(Order.id.desc()).all()]
+    return [
+        {"id": o.id, "item": o.item, "price": o.total, "status": o.status}
+        for o in db.query(Order).filter(Order.customer_id == customer.id).order_by(Order.id.desc()).all()
+    ]
 
 
 @app.post("/orders/{order_id}/deliver")

@@ -1,10 +1,16 @@
+const BASE_URL = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '')
+
 async function request(path, key, options = {}) {
   let res
   try {
-    const headers = { 'Content-Type': 'application/json', ...(key ? { 'X-API-Key': key } : {}), ...options.headers }
-    res = await fetch('/api' + path, { ...options, headers })
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(key ? { 'X-API-Key': key } : {}),
+      ...options.headers,
+    }
+    res = await fetch(`${BASE_URL}${path}`, { ...options, headers })
   } catch {
-    throw new Error("Can't reach the server. Check that the backend is running on port 8000.")
+    throw new Error("Can't reach the server. Check that the backend is running.")
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
