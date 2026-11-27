@@ -5,6 +5,12 @@ from datetime import date, timedelta
 
 from .models import KBArticle, Order, Refund, Ticket
 
+CURRENCY = os.getenv("CURRENCY_SYMBOL", "₹")
+
+
+def money(amount):
+    return f"{CURRENCY}{amount:,.2f}"
+
 
 class ToolError(Exception):
     """An expected failure (not found, not allowed...). The message is safe to show the customer."""
@@ -25,13 +31,27 @@ def maybe_simulate_failure():
         raise TransientToolError("Simulated upstream failure")
 
 
-def _get_own_order(db, customer_id, order_id):
-    """Fetch an order, but only if it belongs to this customer."""
-    order = db.get(Order, order_id)
+def _get_own_order(db, customer_id, order_id, lock=False):
+    """Fetch an order, but only if it belongs to this customer. lock=True blocks concurrent changes."""
+    order = db.get(Order, order_id, with_for_update=lock)
     if order is None or order.customer_id != customer_id:
         # Same message for "doesn't exist" and "not yours" so we never leak other people's orders
         raise ToolError("order_not_found", f"No order #{order_id} found on your account.")
     return order
+
+
+def _check_cancellable(order):
+    if order.status == "cancelled":
+        raise ToolError("already_cancelled", f"Order #{order.id} is already cancelled.")
+    if order.status not in ("processing", "confirmed"):
+        raise ToolError("not_cancellable", f"Order #{order.id} is {order.status} and can no longer be cancelled.")
+
+
+def can_cancel(db, customer_id, order_id):
+    """Dry run used BEFORE asking the customer to confirm: same checks as cancel_order, changes nothing."""
+    order = _get_own_order(db, customer_id, order_id)
+    _check_cancellable(order)
+    return {"order_id": order.id, "item": order.item, "total": order.total}
 
 
 def get_order_status(db, customer_id, order_id):
@@ -44,13 +64,17 @@ def get_order_status(db, customer_id, order_id):
     }
 
 
-def cancel_order(db, customer_id, order_id):
-    order = _get_own_order(db, customer_id, order_id)
+def list_my_orders(db, customer_id):
+    """List every order belonging to the signed-in customer."""
+    orders = db.query(Order).filter(Order.customer_id == customer_id).order_by(Order.id.desc()).all()
+    return {"orders": [{"order_id": o.id, "item": o.item, "price": o.total,
+                        "status": o.status, "expected_delivery": o.eta.isoformat() if o.eta else None}
+                       for o in orders]}
 
-    if order.status == "cancelled":
-        raise ToolError("already_cancelled", f"Order #{order.id} is already cancelled.")
-    if order.status not in ("processing", "confirmed"):
-        raise ToolError("not_cancellable", f"Order #{order.id} is {order.status} and can no longer be cancelled.")
+
+def cancel_order(db, customer_id, order_id):
+    order = _get_own_order(db, customer_id, order_id, lock=True)
+    _check_cancellable(order)
 
     order.status = "cancelled"
     refund = Refund(order_id=order.id, amount=order.total, status="initiated",
@@ -104,6 +128,7 @@ def search_knowledge_base(db, customer_id, query):
 # Registry: tool name -> function. The agent will use this in Step 5.
 TOOLS = {
     "get_order_status": get_order_status,
+    "list_my_orders": list_my_orders,
     "cancel_order": cancel_order,
     "check_refund_status": check_refund_status,
     "create_support_ticket": create_support_ticket,

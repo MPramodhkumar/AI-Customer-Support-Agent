@@ -12,6 +12,7 @@ class Customer(Base):
     name = Column(String(100), nullable=False)
     email = Column(String(200), unique=True, nullable=False)
     api_key = Column(String(100), unique=True, nullable=False)
+    password_hash = Column(String(256), nullable=True)
 
 
 class Order(Base):

@@ -4,6 +4,14 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "list_my_orders",
+            "description": "List all of the signed-in customer's orders when they ask to see, list, or review their orders or order history. Takes no arguments.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_order_status",
             "description": "Get the current status, item and expected delivery date of the customer's order.",
             "parameters": {"type": "object", "properties": _order_id, "required": ["order_id"]},
@@ -13,7 +21,8 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "cancel_order",
-            "description": "Cancel the customer's order and start a refund. Only call after the customer explicitly confirmed.",
+            "description": "Request cancellation of ONE order (and a refund). If the customer names several orders, call this once per order. "
+                           "The system asks the customer to confirm and carries out the cancellation itself.",
             "parameters": {"type": "object", "properties": _order_id, "required": ["order_id"]},
         },
     },
@@ -29,8 +38,9 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "create_support_ticket",
-            "description": "Create a ticket for a human agent when the issue can't be solved with other tools, "
-                           "the customer asks for a human, or the customer is upset.",
+            "description": "Create a ticket for a human agent. Use it right away for: a request for a human or manager, complaints, "
+                           "duplicate or wrong charges, damaged/missing/wrong items or replacement requests, hacked accounts, "
+                           "escalation requests, or anything the other tools cannot solve.",
             "parameters": {
                 "type": "object",
                 "properties": {
